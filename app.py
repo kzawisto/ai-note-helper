@@ -15,10 +15,11 @@ import sv_ttk
 
 # This is where the magic happens
 fields = [
+     {"name":"Title","autoclear":"true"},
+
     {"name":"Content","autoclear":"true"},
     {"name":"Source"},
     {"name":"Keywords","autoclear":"true"},
-    {"name":"Title","autoclear":"true"},
     {"name":"Category"}
 ]
 def click_btn_ev(button):
@@ -777,7 +778,7 @@ def main():
 
     sv_ttk.set_theme("light")
 
-    keyboard.add_hotkey("ctrl+space", app.toggle_window)
+    keyboard.add_hotkey("ctrl+b", app.toggle_window)
     root.mainloop()
 
 

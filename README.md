@@ -16,7 +16,7 @@ Prerequisites:
 - OpenAI or OpenAI compatible API key, or GPU for local LLM inference.
 
 Usage: 
-- Copy some text and press ctrl+space to invoke helper window. 
+- Copy some text and press ctrl+B to invoke helper window. 
 
 Credits:
 - Code & ideas borrowed from @beratcnm https://github.com/beratcnm/local-intelligence
