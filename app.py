@@ -17,10 +17,23 @@ import sv_ttk
 fields = [
     {"name":"Content","autoclear":"true"},
     {"name":"Source"},
-    {"name":"Keywords"},
-    {"name":"Title"},
-    {"name":"category"}
+    {"name":"Keywords","autoclear":"true"},
+    {"name":"Title","autoclear":"true"},
+    {"name":"Category"}
 ]
+def click_btn_ev(button):
+
+    def f(ev):   
+        if ev.widget.winfo_class() == 'Text':
+                return "break"
+
+        print('Event', ev, ev.widget)
+
+        button.event_generate("<ButtonPress-1>")
+
+        button.event_generate("<ButtonRelease-1>")
+        
+    return f
 
 def get_llm(settings):
     if settings['model_mode'] == 'openai':
@@ -76,6 +89,9 @@ class CopilotApp:
         self.prompts = get_task_prompts()
         self.editor_prompts = get_editor_prompts()
         self.root = root
+        # name the tk window
+        self.root.title("Note Helper")
+    
 
         self.indicator_labels = []
         self._initialize_root_window()
@@ -84,7 +100,12 @@ class CopilotApp:
         self._create_text_areas()
         self.executor = ThreadPoolExecutor(max_workers=5)
         #print('x')
-        self.settings = json.loads(Path('settings.json').read_text())
+        if not Path('settings.json').exists():
+            # load settings_default
+            self.settings = json.loads(Path('settings_default.json').read_text())
+            Path('settings.json').write_text(json.dumps(self.settings))
+        else:
+            self.settings = json.loads(Path('settings.json').read_text())
         print(self.settings)
         if validate_settings(self.root, self.settings):
             self.llm = get_llm(self.settings)
@@ -96,6 +117,7 @@ class CopilotApp:
         #if 'openai_llm' not in self.settings:
         #    self.settings['openai_llm'] = 'gpt-3.5-turbo-0125'
         self.fields = fields
+        self.name_to_fieldidx = {f['name']:i for i,f in enumerate(fields)}
         self.clipboard = {}
         print('done')
         # self.indicator_labels = []
@@ -108,7 +130,7 @@ class CopilotApp:
         """
         Initialize the main application window with specific attributes.
         """
-        self.root.title("Button Tree")
+        #self.root.title("Button Tree")
         # self.root.geometry("600x400")
         self.root.overrideredirect(False)
         
@@ -187,9 +209,6 @@ class CopilotApp:
             # "border_color": "#212121",
         }
 
-        tasks = get_tasks()
-
-
         # for i, (text, index) in enumerate(tasks):
         #     button = ctk.CTkButton(
         #         self.buttons_frame,
@@ -199,12 +218,6 @@ class CopilotApp:
         #     )
         #     button.grid(row=i % 5, column=i // 5, pady=5, padx=5)
 
-        settings_button = ctk.CTkButton(
-            self.buttons_frame,
-            text='⚙ Settings',
-            command=self.open_settings_window,
-            **button_options,
-        )
         self.style = ttk.Style(self.root)
         
         # Configure the style for the LabelFrame and its label
@@ -242,19 +255,7 @@ class CopilotApp:
                 **button_options,
             )
             import time
-            def click_btn_ev(button):
 
-                def f(ev):   
-                    if ev.widget.winfo_class() == 'Text':
-                         return "break"
- 
-                    print('Event', ev, ev.widget)
-
-                    button.event_generate("<ButtonPress-1>")
-           
-                    button.event_generate("<ButtonRelease-1>")
-                   
-                return f
             self.root.bind(f'<Key-{i+1}>',click_btn_ev(button_save))
             button_save.grid(row=i+1, column=1, padx=10, pady=10)
 
@@ -283,8 +284,51 @@ class CopilotApp:
 
 
         # settings_button.grid(row=len(fields) % 5, column=len(fields) // 5, pady=5, padx=5)
+    def format_note(self):
+        final_txt = ''
+        import time
+        priority_entries = ['Title','Source','Keywords']
+        list_of_entries = [(self.fields[k]['name'],v) for (k,v) in list(self.clipboard.items()) if self.fields[k]['name'] in priority_entries] +  [('datetime', time.strftime("%Y-%m-%d %H:%M:%S"))
+        ] + [(self.fields[k]['name'],v) for (k,v) in list(self.clipboard.items()) if self.fields[k]['name'] not in priority_entries]
 
+        for (k,v) in list_of_entries:
+            if v == '':
+                continue
+            final_txt += k + ': \n' + v + '\n\n'
+        return final_txt
 
+        
+    def autoclear_fields(self):
+        for i, f in enumerate(fields):
+            if f.get('autoclear','false') == 'true':
+                self.clipboard[i] = ''
+                self.indicator_labels[i].set_state(False)
+        
+    def save_note(self):
+        filename = self.settings['filename'].replace('{title}',self.clipboard.get(self.name_to_fieldidx['Title'],''))
+        path = self.settings['save_dir'] + os.path.sep+ filename
+        os.makedirs(self.settings['save_dir'], exist_ok=True)
+        # if file exists
+        if os.path.exists(path):
+            i = 0
+            path2 = path.replace('.',str(i).zfill(3) +'.')
+            while os.path.exists(path2):
+                i+=1
+                path2 = path.replace('.',str(i).zfill(3) +'.')
+            path = path2
+
+        with open(path, 'w') as fp:
+            fp.write(self.format_note())
+        self.autoclear_fields()
+    def append_note(self):
+        filename = self.settings['filename'].replace('{title}',self.clipboard.get('title',''))
+        path = self.settings['save_dir'] + os.path.sep+ filename
+        file_exists_already = os.path.exists(path)
+        with open(path, 'a') as fp:
+            if file_exists_already:
+                fp.write('\n\n---------------------\n\n')
+            fp.write(self.format_note())
+        self.autoclear_fields()
     def _create_text_areas(self):
         """
             Create two text areas and add them to the text frame.
@@ -300,23 +344,29 @@ class CopilotApp:
         button_frame1.grid(row=0, column=6, padx=5, pady=5, sticky='ew')
         clear_button = ttk.Button(
             button_frame1,
-            text='Clear All',
+            text='Clear All (Ctrl-l)',
             command=lambda : self.clearall(),
         )
+        self.root.bind(f'<Control-l>', click_btn_ev(clear_button))
+
         clear_button.grid(row=0, column=0,padx=5,pady=5)
 
         savefile_button = ttk.Button(
             button_frame1,
             text='Save Note (Ctrl-S)',
-            command=lambda : print(),
+            command=lambda : self.save_note(),
         )
+        self.root.bind(f'<Control-s>', click_btn_ev(savefile_button))
+
         savefile_button.grid(row=1, column=0,padx=5,pady=5)
-        savefile_button = ttk.Button(
+        append_button = ttk.Button(
             button_frame1,
             text='Append to Note. (Ctrl-A)',
-            command=lambda : print(),
+            command=lambda : self.append_note(),
         )
-        savefile_button.grid(row=2, column=0,padx=5,pady=5)
+        self.root.bind(f'<Control-a>', click_btn_ev(append_button))
+
+        append_button.grid(row=2, column=0,padx=5,pady=5)
         settings_button = ttk.Button(
             button_frame1,
             text='⚙ Settings',
@@ -327,15 +377,15 @@ class CopilotApp:
         button_frame2.grid(row=1, column=6, padx=5, pady=5,sticky="ew")
         generate_button = ttk.Button(
             button_frame2,
-            text='Generate Title & Keywords',
-            command=lambda : print(),
+            text='Generate Title',
+            command=lambda : self.on_gen_title(),
         )
         generate_button.grid(row=0, column=0, padx=5, pady=5)
 
         classify_category = ttk.Button(
             button_frame2,
-            text='Classify Category',
-            command=lambda : print(),
+            text='Generate Keywords',
+            command=lambda : self.on_gen_keywords(),
         )
         classify_category.grid(row=1, column=0, padx=5, pady=5)
 
@@ -382,35 +432,43 @@ class CopilotApp:
         else:
             self.root.withdraw()
 
+    def on_gen_title_worker(self):
+        prompy = ('Here is note: \n <NOTE BEGIN>' + self.format_note() + '\n<NOTE END>'+ ' Please generate short concrete descriptive title to this note.'+
+                          'Please provide only the title (no extra words or formatting characters).')
+        print('prompt',prompy)
+        text_result = self.llm.generate(prompy)
+        print('result',text_result)
+        self.write_text(self.text_area_1,text_result)
+        self.clipboard[self.name_to_fieldidx['Title']] = text_result
+        self.indicator_labels[self.name_to_fieldidx['Title']].set_state(True)
+    def on_gen_title(self):
+        self.executor.submit(self.on_gen_title_worker)
+    
+    def on_gen_keywords_worker(self):
+        prompy = ('Here is a note: \n <NOTE BEGIN>' + self.format_note() + '\n<NOTE END>'+ 
+        ' Please generate few keywords for this note, including proper names. Please generate them in wikilink format: [[Keyword1]], [[Keyword2]].' 
+        )
+        text_result = self.llm.generate(prompy)
+        # extract text in quotes
+        # import re
+        # text_result2 = re.findall(r'\"(.+?)\"', text_result)
+        # if len(text_result2) > 0:
+        #     text_result = text_result2[0]
+        self.write_text(self.text_area_1,text_result)
+        self.clipboard[self.name_to_fieldidx['Keywords']] = text_result
+        self.indicator_labels[self.name_to_fieldidx['Keywords']].set_state(True)
+    def on_gen_keywords(self):
+        self.executor.submit(self.on_gen_keywords_worker)
     def on_button_click(self, task_index):
         """
         Handle button click events by triggering the corresponding task.
         """
-        self.toggle_window()
-        self.executor.submit(self.handle_button_click, task_index)
-
-    def handle_button_click(self, task_index):
-        """
-        Execute the task corresponding to the clicked button.
-        """
-        print('handle click', task_index)
-        prompt = self.prompts[task_index]["prompt"]
-        print('template', prompt)
-        print('----------------------------')
-        prompt = prompt.format(text=pyperclip.paste())
-        print(' prompt',prompt)
-        print('----------------------------------------------------')
-        generated_text = self.llm.generate(prompt)
-        if task_index==1:
-            path = '/home/krystian/mydocs/mydocsstuff/darwinnotes.bib'
-            with open(path, 'a') as fp:
-                fp.write('\n')
-                fp.write(generated_text)
-            os.system('chown krystian ' + path)
+        #self.toggle_window()
+        #self.executor.submit(self.handle_button_click, task_index)
 
 
-        pyperclip.copy(generated_text)
-        self.root.after(0, self.show_generated_text, generated_text)
+        # pyperclip.copy(generated_text)
+        # self.root.after(0, self.show_generated_text, generated_text)
 
     def show_generated_text(self, text):
         """
